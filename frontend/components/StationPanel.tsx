@@ -1,0 +1,207 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { CORRIDOR_LABELS, type Station } from "@/lib/network";
+import PredictionsView from "./predictions/PredictionsView";
+import StationMapModal from "./StationMapModal";
+import { getStationDepartures } from "@/lib/networkFallback";
+
+interface ActiveAlert {
+  id: string;
+  stationId: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+  createdAt: string;
+}
+
+export default function StationPanel({
+  station,
+  onClose,
+  onPlanTripFromStation,
+}: {
+  station: Station;
+  onClose: () => void;
+  onPlanTripFromStation?: (station: Station) => void;
+}) {
+  const [showStationMap, setShowStationMap] = useState(false);
+  const [stationAlerts, setStationAlerts] = useState<ActiveAlert[]>([]);
+  const departures = getStationDepartures(station);
+
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadAlerts() {
+      try {
+        const res = await fetch(`/api/alerts?stationId=${station.code}&activeOnly=true`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!isCancelled && data.alerts) {
+            setStationAlerts(data.alerts);
+          }
+        }
+      } catch {
+        // Silently handle offline/preview
+      }
+    }
+    loadAlerts();
+    return () => {
+      isCancelled = true;
+    };
+  }, [station.code]);
+
+  return (
+    <>
+      {/* Mobile backdrop constrained to main stage */}
+      <div
+        className="absolute inset-0 z-[1040] bg-black/40 backdrop-blur-[2px] transition-opacity sm:hidden"
+        onClick={onClose}
+      />
+
+      {/* Main panel - starts at top-3 on the right, exactly matching Suburban Journey Planner level */}
+      <div className="absolute top-3 right-3 bottom-3 left-3 sm:left-auto z-[1050] w-auto sm:w-[420px] max-h-[calc(100%-1.5rem)] flex flex-col rounded-2xl border border-[rgb(var(--border))] bg-[rgb(var(--surface))]/95 backdrop-blur-md shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4 sm:slide-in-from-right-4 duration-200 pointer-events-auto">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-5 py-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold tracking-tight">{station.name}</h2>
+              <span className="rounded bg-brand-600/15 px-2 py-0.5 text-xs font-bold text-brand-600 dark:text-brand-400">
+                {station.code}
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-[rgb(var(--text-muted))]">
+              {station.line} Line &middot; {station.platformCount} Platforms &middot; Cap: {station.capacity.toLocaleString()} pax
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="inline-block rounded-full bg-[rgb(var(--surface-2))] px-2.5 py-0.5 text-[11px] font-medium text-[rgb(var(--text-muted))]">
+                {CORRIDOR_LABELS[station.corridor]}
+              </span>
+              {onPlanTripFromStation && (
+                <button
+                  type="button"
+                  onClick={() => onPlanTripFromStation(station)}
+                  className="text-[11px] font-semibold text-brand-600 dark:text-brand-400 hover:underline"
+                >
+                  Plan trip from here &rarr;
+                </button>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-base text-[rgb(var(--text-muted))] hover:bg-[rgb(var(--surface-2))] hover:text-[rgb(var(--text))] transition"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Content body */}
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          {/* Active Station Alerts Banner (Read-only for passengers) */}
+          {stationAlerts.length > 0 && (
+            <div className="space-y-2">
+              {stationAlerts.map((alt) => (
+                <div
+                  key={alt.id}
+                  className={`rounded-xl border p-3 text-xs flex items-start gap-2.5 ${
+                    alt.severity === "critical"
+                      ? "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300"
+                      : alt.severity === "warning"
+                      ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                      : "border-blue-500/30 bg-blue-500/10 text-blue-800 dark:text-blue-300"
+                  }`}
+                >
+                  <span className="shrink-0 text-sm">
+                    {alt.severity === "critical" ? "🚨" : alt.severity === "warning" ? "⚠️" : "ℹ️"}
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[10px]">
+                      <span>{alt.severity} Alert</span>
+                    </div>
+                    <p className="mt-0.5 leading-relaxed">{alt.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Live Departures Section */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">
+                Next Departing Trains
+              </h3>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Live Feed</span>
+            </div>
+            <div className="space-y-2">
+              {departures.slice(0, 3).map((dep) => (
+                <div
+                  key={dep.id}
+                  className="flex items-center justify-between rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--surface-2))] p-2.5 text-xs"
+                >
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold">{dep.destination}</span>
+                      <span
+                        className={`rounded px-1.5 py-0.2 text-[9px] font-bold ${
+                          dep.type === "Fast"
+                            ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                            : dep.type === "AC Fast"
+                            ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                            : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                        }`}
+                      >
+                        {dep.type}
+                      </span>
+                      <span className="rounded bg-[rgb(var(--surface))] px-1.5 py-0.2 text-[9px] font-medium">
+                        PF {dep.platform}
+                      </span>
+                    </div>
+                    <p suppressHydrationWarning className="mt-0.5 text-[11px] text-[rgb(var(--text-muted))]">
+                      Leaves in <strong className="text-[rgb(var(--text))]">{dep.minutesAway} mins</strong> ({dep.departureTime}) &middot; {dep.status}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <span
+                      className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${
+                        dep.crowdLevel === "low"
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                          : dep.crowdLevel === "moderate"
+                          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                          : "bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                      }`}
+                    >
+                      {dep.crowdLevel}
+                    </span>
+                    <p className="text-[10px] text-[rgb(var(--text-muted))]">{dep.crowdPercent}%</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Dedicated Predictions View */}
+          <PredictionsView station={station} />
+        </div>
+
+        {/* Footer with 2D/3D map */}
+        <div className="border-t border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-5 py-3.5">
+          <button
+            onClick={() => setShowStationMap(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand-600 bg-brand-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-brand-700 active:scale-[0.99] transition shadow-sm"
+          >
+            🗺️ Open 2D / 3D Platform Heatmap
+          </button>
+        </div>
+      </div>
+
+      {showStationMap && (
+        <StationMapModal
+          stationId={station._id}
+          stationName={station.name}
+          onClose={() => setShowStationMap(false)}
+        />
+      )}
+    </>
+  );
+}
